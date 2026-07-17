@@ -1,0 +1,89 @@
+site_name: Seedward Suite
+site_description: Coordinated Cosmos SDK chain-launch tooling — architecture & decisions
+# site_url: https://ny4rl4th0t3p.github.io/seedward-suite/   # set for canonical links + sitemap
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.instant
+    - content.code.copy
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        # Mermaid for quick, auto-laid-out diagrams (Material renders these natively).
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Architecture:
+      - Overview: architecture/overview.md
+      - Launch flow: architecture/launch-flow.md
+  - Decisions:
+      - Index: decisions/index.md
+      - ADR template: decisions/adr-template.md
+      - "0001 · Single-gentx validator boundary": decisions/0001-single-gentx-validator-boundary.md
+      - "0002 · Client-side gentx validation (WASM)": decisions/0002-client-side-gentx-validation-wasm.md
+      - "0003 · Rehearsal is an optional bolt-on": decisions/0003-rehearsal-optional-bolt-on.md
+      - "0004 · gentool library-first engine": decisions/0004-gentool-library-first-genesis-engine.md
+      - "0005 · gentool mountable command tree": decisions/0005-gentool-mountable-command-tree.md
+      - "0006 · Rehearsal engine in gentool": decisions/0006-rehearsal-engine-in-gentool.md
+      - "0007 · Bridge fact-based trust boundary": decisions/0007-bridge-fact-based-trust-boundary.md
+      - "0008 · Rehearsal write-back + lease": decisions/0008-rehearsal-write-back-and-lease.md
+      - "0009 · Launch lifecycle state machine": decisions/0009-launch-lifecycle-state-machine.md
+      - "0010 · M-of-N committee proposal governance": decisions/0010-m-of-n-committee-proposal-governance.md
+      - "0011 · ADR-036 challenge-response auth": decisions/0011-adr036-challenge-response-auth.md
+      - "0012 · Private-always membership & visibility": decisions/0012-private-always-membership-visibility.md
+      - "0013 · Submitter vs validator identity split": decisions/0013-submitter-validator-identity-split.md
+      - "0014 · Allocation files: whole-file governance": decisions/0014-allocation-files-whole-file-governance.md
+      - "0015 · input_set_hash — the input fingerprint": decisions/0015-input-set-hash.md
+      - "0016 · Pre-acceptance gentx validation": decisions/0016-pre-acceptance-gentx-validation.md
+      - "0017 · Tamper-evident audit log": decisions/0017-tamper-evident-audit-log.md
+      - "0018 · Artifact storage (attestor or host)": decisions/0018-artifact-storage-attestor-or-host.md
+      - "0019 · Readiness attestation": decisions/0019-readiness-attestation.md
+      - "0020 · OpenAPI is the source of truth": decisions/0020-openapi-source-of-truth.md
+      - "0021 · Web is a standalone spec-consuming repo": decisions/0021-web-standalone-spec-consuming-repo.md
+      - "0022 · Suite topology, naming & composition": decisions/0022-suite-topology-naming-composition.md
+      - "0023 · License: Apache-2.0 (v1)": decisions/0023-license-apache-2-0.md
+      - "0024 · HRP-independent account identity": decisions/0024-hrp-independent-account-identity.md
+      - "0025 · Cancellation is stage-dependent (hybrid)": decisions/0025-cancel-governance-hybrid.md
+      - "0026 · Coordinator vs committee member": decisions/0026-coordinator-vs-committee-member.md
+  - Reference:
+      - "Bridge contract (coordd ↔ rehearsal)": reference/bridge-contract.md
