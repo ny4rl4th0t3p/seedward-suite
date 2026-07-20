@@ -5,7 +5,7 @@
 VENV := .venv
 BIN  := $(VENV)/bin
 
-.PHONY: help serve build deploy clean dev-up dev-down dev-pull dev-seed dev-accounts
+.PHONY: help serve build deploy clean dev-up dev-down dev-pull dev-seed dev-reseed dev-accounts
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -42,6 +42,11 @@ dev-pull: ## Pull the latest pinned images
 	$(COMPOSE) pull
 
 dev-seed: ## Seed the running stack with the demo fixture (needs .env: DEMO_MNEMONIC + admin address)
+	$(COMPOSE) --profile seed run --build --rm seeder
+
+dev-reseed: ## Fresh demo in one shot: reset the volume, start detached, then seed (down + up -d + seed)
+	$(COMPOSE) down --volumes
+	$(COMPOSE) up -d
 	$(COMPOSE) --profile seed run --build --rm seeder
 
 dev-accounts: ## Print the demo account table (idx | address | privkey) — no running stack needed

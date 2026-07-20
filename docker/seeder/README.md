@@ -16,8 +16,9 @@ make dev-up         # coordd (restricted policy, host-mode genesis, rate limit o
 make dev-seed       # derive accounts, seed coordinators, build the launch fixture
 ```
 
-**Re-seed:** coordd state persists in its volume, so a fixture is built once against a fresh coordd. To re-run:
-`make dev-down && make dev-up && make dev-seed`.
+**Re-seed:** coordd state persists in its volume, so a fixture is built once against a fresh coordd.
+`make dev-reseed` does the full cycle in one shot (reset volume → start detached → seed); it's the
+iteration loop. (Equivalent to `make dev-down && make dev-up && make dev-seed`.)
 
 ## Accounts & roles
 
@@ -34,6 +35,12 @@ address index instead) if you prefer.
 | 2    | committee delegate  | **no**               | governs (signs proposals, can be committee lead) but is not on the coordinator allowlist |
 | 3–14 | validators          | —                    | join / get approved across launches                                                      |
 | 15   | unauthorized        | no                   | member of nothing (demoes a 404 / rejected action)                                       |
+
+Launches are **private-always** — visible only to their committee ∪ allowlist. The seeder adds
+account 0 as a **view-only** member (allowlist, not committee) of every launch it doesn't already
+govern, so the front-door account sees the whole fixture while only *governing* the 3 it's on the
+committee of. Account 2 (the delegate) sees only its 3; account 15 sees none — the privacy model on
+display, not a bug.
 
 > **Public throwaway mnemonic — insecure by design.** Never reuse these keys or send them real funds.
 

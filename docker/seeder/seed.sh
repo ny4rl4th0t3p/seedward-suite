@@ -66,6 +66,21 @@ curl_check() {
   rm -f "$tmp"
 }
 
+# expect_status <want> <desc> <curl args...>: assert a request returns HTTP <want> (for the negative
+# role-boundary checks). Fails the seed loudly if it doesn't.
+expect_status() {
+  local want="$1" desc="$2"
+  shift 2
+  local code
+  code=$(curl -sS -o /dev/null -w '%{http_code}' "$@")
+  if [ "$code" = "$want" ]; then
+    log "  OK: $desc ($code)"
+  else
+    echo "ASSERT FAIL: $desc — expected $want, got $code" >&2
+    return 1
+  fi
+}
+
 wait_for_coordd() {
   log "waiting for coordd at $COORD_SERVER ..."
   local i
@@ -324,7 +339,16 @@ build_launch() {
   for m in ${S[committee]}; do
     members_json=$(echo "$members_json" | jq --arg a "${ADDR[$m]}" --arg mon "member$m" '. + [{address:$a,moniker:$mon}]')
   done
-  for a in ${S[allow]:-}; do
+  # Add the demo admin (idx0) as an allowlisted VIEWER of every launch it doesn't already govern, so
+  # the front-door account sees the whole fixture. Allowlist membership grants visibility + join, not
+  # governance — safe: idx0 has no power over launches where it's only on the allowlist. (A creator
+  # keeps sight of a launch it fully delegates by adding itself to the allowlist exactly like this.)
+  local allow_idxs="${S[allow]:-}"
+  case " ${S[committee]} " in
+  *" $IDX_ADMIN "*) : ;;                    # already a committee member → already visible
+  *) allow_idxs="$IDX_ADMIN $allow_idxs" ;; # add as a view-only member
+  esac
+  for a in $allow_idxs; do
     allow_json=$(echo "$allow_json" | jq --arg x "${ADDR[$a]}" '. + [$x]')
   done
   total_n=$(echo "${S[committee]}" | wc -w)
@@ -428,17 +452,106 @@ build_launch() {
   echo "$id"
 }
 
-# seed_launches: build the launch fixture. Task 3 wires ONE launch end-to-end (create → GENESIS_READY,
-# 1-of-1, 4 validators) to prove the ladder; the full ~10-launch matrix is task 4.
+# demo_negative_checks <a_launch_id>: assert the role boundaries the fixture is meant to demonstrate.
+demo_negative_checks() {
+  local a_launch="$1"
+  log "verifying role boundaries ..."
+  # idx 2 (committee delegate) is NOT on the coordinator allowlist → cannot create under restricted
+  # policy. coordd checks the allowlist before decoding the body, so an empty body still 403s.
+  expect_status 403 "idx2 (delegate) cannot create a launch" \
+    -X POST "$COORD_SERVER/launch" -H "Authorization: Bearer $(token_for 2)" \
+    -H 'Content-Type: application/json' -d '{}'
+  # idx 15 (unauthorized) is a member of nothing → a private launch is 404 even when authenticated.
+  expect_status 404 "idx15 cannot see a private launch" \
+    "$COORD_SERVER/launch/$a_launch" -H "Authorization: Bearer $(auth_token 15)"
+}
+
+# seed_launches: build the ~10-launch matrix on the ladder — one launch per reachable state plus
+# type/committee variety. See docker/seeder/README.md for the full table.
 seed_launches() {
   log "building launch fixture ..."
-  local -A L_PROOF=(
-    [name]="Proof" [chain_id]="proof-1" [denom]="ustake" [type]="MAINNET"
-    [target]="GENESIS_READY" [creator]=0 [lead]=0 [committee]="0" [threshold]=1
-    [min_validators]=4 [allow]="3 4 5 11" [join]="3 4 5 11" [approve]="3 4 5 11"
+
+  # 1. Aurora — DRAFT (created, initial genesis uploaded, unpublished)
+  local -A L_AURORA=(
+    [name]="Aurora" [chain_id]="aurora-1" [denom]="uaurora" [type]="TESTNET"
+    [target]="DRAFT" [lead]=1 [committee]="1" [threshold]=1 [min_validators]=1
   )
-  build_launch L_PROOF >/dev/null
-  log "launch fixture done (1 launch — proof of the ladder)."
+  build_launch L_AURORA >/dev/null
+
+  # 2. Borealis — PUBLISHED (window not yet opened)
+  local -A L_BOREALIS=(
+    [name]="Borealis" [chain_id]="borealis-1" [denom]="uboreal" [type]="INCENTIVIZED_TESTNET"
+    [target]="PUBLISHED" [lead]=1 [committee]="1" [threshold]=1 [min_validators]=1
+  )
+  build_launch L_BOREALIS >/dev/null
+
+  # 3. Cascade — WINDOW_OPEN centerpiece: 2-of-3 committee LED by non-coordinator idx2 (created by
+  #    coordinator idx1 — full delegation); idx6-8 allowlisted but unjoined (room to join); the last
+  #    approval (val5) is left PENDING_SIGNATURES to show multisig governance in the UI.
+  local -A L_CASCADE=(
+    [name]="Cascade" [chain_id]="cascade-1" [denom]="umars" [type]="MAINNET"
+    [target]="WINDOW_OPEN" [creator]=1 [lead]=2 [committee]="2 1 0" [threshold]=2 [cosign]="1"
+    [min_validators]=3 [allow]="3 4 5 6 7 8" [join]="3 4 5" [approve]="3 4 5" [pending_last_approve]=1
+  )
+  local cascade_id
+  cascade_id=$(build_launch L_CASCADE)
+
+  # 4. Delta — WINDOW_CLOSED (4 approved, awaiting genesis)
+  local -A L_DELTA=(
+    [name]="Delta" [chain_id]="delta-1" [denom]="udelta" [type]="TESTNET"
+    [target]="WINDOW_CLOSED" [lead]=1 [committee]="1" [threshold]=1 [min_validators]=4
+    [allow]="3 4 9 10" [join]="3 4 9 10" [approve]="3 4 9 10"
+  )
+  build_launch L_DELTA >/dev/null
+
+  # 5. Echo — GENESIS_READY. Assembled with collect-gentxs for now; task 5 swaps it to the gentool
+  #    assembler with custom accounts/vesting inputs.
+  local -A L_ECHO=(
+    [name]="Echo" [chain_id]="echo-1" [denom]="uecho" [type]="MAINNET"
+    [target]="GENESIS_READY" [lead]=0 [committee]="0" [threshold]=1 [min_validators]=4
+    [allow]="3 4 5 11 12" [join]="3 4 5 11 12" [approve]="3 4 5 11 12"
+  )
+  build_launch L_ECHO >/dev/null
+
+  # 6. Gale — CANCELED from PUBLISHED (committee lead idx2 cancels; created by coordinator idx1)
+  local -A L_GALE=(
+    [name]="Gale" [chain_id]="gale-1" [denom]="ugale" [type]="PERMISSIONED"
+    [target]="CANCELED" [creator]=1 [lead]=2 [committee]="2" [threshold]=1 [min_validators]=1
+  )
+  build_launch L_GALE >/dev/null
+
+  # 7. Halo — DRAFT (list/pagination variety)
+  local -A L_HALO=(
+    [name]="Halo" [chain_id]="halo-1" [denom]="uhalo" [type]="TESTNET"
+    [target]="DRAFT" [lead]=1 [committee]="1" [threshold]=1 [min_validators]=1
+  )
+  build_launch L_HALO >/dev/null
+
+  # 8. Ion — PUBLISHED, delegated (created by coordinator idx1, governed by non-coordinator idx2)
+  local -A L_ION=(
+    [name]="Ion" [chain_id]="ion-1" [denom]="uion" [type]="MAINNET"
+    [target]="PUBLISHED" [creator]=1 [lead]=2 [committee]="2" [threshold]=1 [min_validators]=1
+  )
+  build_launch L_ION >/dev/null
+
+  # 9. Juno — WINDOW_CLOSED (second closed example)
+  local -A L_JUNO=(
+    [name]="Juno" [chain_id]="juno-demo-1" [denom]="ujuno" [type]="INCENTIVIZED_TESTNET"
+    [target]="WINDOW_CLOSED" [lead]=0 [committee]="0" [threshold]=1 [min_validators]=4
+    [allow]="6 7 8 13" [join]="6 7 8 13" [approve]="6 7 8 13"
+  )
+  build_launch L_JUNO >/dev/null
+
+  # 10. Kilo — WINDOW_OPEN (second open example; idx11-14 allowlisted but unjoined)
+  local -A L_KILO=(
+    [name]="Kilo" [chain_id]="kilo-1" [denom]="ukilo" [type]="TESTNET"
+    [target]="WINDOW_OPEN" [lead]=1 [committee]="1" [threshold]=1 [min_validators]=1
+    [allow]="9 10 11 12 13 14" [join]="9 10" [approve]="9 10"
+  )
+  build_launch L_KILO >/dev/null
+
+  log "launch fixture done (10 launches)."
+  demo_negative_checks "$cascade_id"
 }
 
 main() {
