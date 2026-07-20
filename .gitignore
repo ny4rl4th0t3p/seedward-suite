@@ -23,3 +23,4 @@ Gemfile.lock
 __pycache__/
 .venv/
 venv/
+/docker/.env

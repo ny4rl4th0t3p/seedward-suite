@@ -1,0 +1,87 @@
+# Full-stack dev/demo: pinned coordd + web-UI images from GHCR, wired together.
+# Run with `make dev-up` from the repo root. Set image versions + your admin address
+# in .env (copy .env.example). Open http://localhost:3000 and sign in with a wallet.
+services:
+
+  # One-shot init: the coordd image runs as non-root (uid 1000), but a fresh named volume is
+  # root-owned — chown it once so coordd can write its DB / keys / audit log under /data.
+  coordd-init:
+    image: ghcr.io/ny4rl4th0t3p/seedward-chaincoord:${COORD_VERSION:-1.0.0-rc4}
+    user: "0:0"
+    entrypoint: ["chown", "-R", "1000:1000", "/data"]
+    volumes:
+      - coordd-data:/data
+
+  coordd:
+    image: ghcr.io/ny4rl4th0t3p/seedward-chaincoord:${COORD_VERSION:-1.0.0-rc4}
+    entrypoint: ["sh", "/coordd-entrypoint.sh"]
+    depends_on:
+      coordd-init:
+        condition: service_completed_successfully
+    volumes:
+      - coordd-data:/data
+      - ./coordd-entrypoint.sh:/coordd-entrypoint.sh:ro
+    environment:
+      COORD_LISTEN_ADDR: ":8080"
+      COORD_DB_PATH: "/data/coord.db"
+      COORD_AUDIT_LOG_PATH: "/data/audit.jsonl"
+      COORD_FILES_PATH: "/data/genesis"
+      COORD_LOG_LEVEL: "info"
+      COORD_INSECURE_NO_TLS: "true"
+      # The demo seed uses `restricted` so launch creation is gated to the coordinator allowlist the
+      # seeder populates (accounts 0, 1). Set COORD_LAUNCH_POLICY=open in .env for an open instance.
+      COORD_LAUNCH_POLICY: "${COORD_LAUNCH_POLICY:-restricted}"
+      # Host mode: accept raw genesis uploads (Content-Type octet-stream). The seeder uploads genesis
+      # bytes directly; without this coordd only accepts attestor-mode {url, sha256} references.
+      COORD_GENESIS_HOST_MODE: "true"
+      # The seeder authenticates all 16 demo accounts many times from one IP, which trips the
+      # per-IP challenge rate limit. Disable it for the demo stack (never in production).
+      COORD_INSECURE_NO_RATE_LIMIT: "true"
+      COORD_AUDIT_PRIVATE_KEY_FILE: "/data/audit_key"
+      COORD_JWT_PRIVATE_KEY_FILE: "/data/jwt_key"
+      # Ops token that opens the /bridge/* endpoints (only when set) — match it in a
+      # natively run rehearsald to add pre-flight rehearsal. Empty → bridge disabled.
+      COORD_REHEARSAL_OPS_TOKEN: "${REHEARSAL_OPS_TOKEN:-}"
+      # Admin address for the /admin panel — any account HRP (Cosmos Hub, Osmosis, …).
+      COORD_ADMIN_ADDRESSES: "${COORD_ADMIN_ADDRESSES:-}"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  web:
+    image: ghcr.io/ny4rl4th0t3p/seedward-chaincoord-web:${WEB_VERSION:-0.2.4}
+    environment:
+      # The web proxies API paths to coordd over the compose network — no CORS, no baked URL.
+      COORD_BACKEND_URL: "http://coordd:8080"
+    ports:
+      - "3000:3000"
+    depends_on:
+      coordd:
+        condition: service_healthy
+
+  # Demo seeder (one-shot). Run with `make dev-seed` — it's behind the `seed` profile so a plain
+  # `make dev-up` never starts it. Derives 16 accounts from DEMO_MNEMONIC, seeds the coordinator
+  # allowlist, and builds the launch fixture. Requires the admin address (account 0) in
+  # COORD_ADMIN_ADDRESSES — see `make dev-accounts`.
+  seeder:
+    build:
+      context: ./seeder
+      args:
+        CHAINCOORD_REF: "${CHAINCOORD_REF:-v1.0.0-rc5}"
+        GENTOOL_VERSION: "${GENTOOL_VERSION:-v1.0.0}"
+        GAIA_VERSION: "${GAIA_VERSION:-v27.1.0}"
+    profiles: ["seed"]
+    environment:
+      COORD_SERVER: "http://coordd:8080"
+      DEMO_MNEMONIC: "${DEMO_MNEMONIC:?set DEMO_MNEMONIC in .env (copy .env.example)}"
+      DERIVE_BY: "${DERIVE_BY:-account}"
+    depends_on:
+      coordd:
+        condition: service_healthy
+
+volumes:
+  coordd-data:
