@@ -6,14 +6,14 @@ services:
   # One-shot init: the coordd image runs as non-root (uid 1000), but a fresh named volume is
   # root-owned — chown it once so coordd can write its DB / keys / audit log under /data.
   coordd-init:
-    image: ghcr.io/ny4rl4th0t3p/seedward-chaincoord:${COORD_VERSION:-1.0.0-rc6}
+    image: ghcr.io/ny4rl4th0t3p/seedward-chaincoord:${COORD_VERSION:-1.0.0}
     user: "0:0"
     entrypoint: ["chown", "-R", "1000:1000", "/data"]
     volumes:
       - coordd-data:/data
 
   coordd:
-    image: ghcr.io/ny4rl4th0t3p/seedward-chaincoord:${COORD_VERSION:-1.0.0-rc6}
+    image: ghcr.io/ny4rl4th0t3p/seedward-chaincoord:${COORD_VERSION:-1.0.0}
     entrypoint: ["sh", "/coordd-entrypoint.sh"]
     depends_on:
       coordd-init:
@@ -53,7 +53,7 @@ services:
       retries: 20
 
   web:
-    image: ghcr.io/ny4rl4th0t3p/seedward-chaincoord-web:${WEB_VERSION:-0.2.4}
+    image: ghcr.io/ny4rl4th0t3p/seedward-chaincoord-web:${WEB_VERSION:-0.3.0}
     environment:
       # The web proxies API paths to coordd over the compose network — no CORS, no baked URL.
       COORD_BACKEND_URL: "http://coordd:8080"
@@ -71,7 +71,7 @@ services:
     build:
       context: ./seeder
       args:
-        CHAINCOORD_REF: "${CHAINCOORD_REF:-v1.0.0-rc5}"
+        CHAINCOORD_REF: "${CHAINCOORD_REF:-v1.0.0}"
         GENTOOL_VERSION: "${GENTOOL_VERSION:-v1.0.0}"
         GAIA_VERSION: "${GAIA_VERSION:-v27.1.0}"
     profiles: ["seed"]

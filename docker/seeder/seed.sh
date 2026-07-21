@@ -24,6 +24,8 @@ set -euo pipefail
 shopt -s inherit_errexit
 
 COORD_SERVER="${COORD_SERVER:-http://coordd:8080}"
+# coordd's REST API is mounted under /api/v1 (ADR-0027); the ops endpoint /healthz stays root.
+COORD_API="$COORD_SERVER/api/v1"
 DEMO_MNEMONIC="${DEMO_MNEMONIC:?DEMO_MNEMONIC is required}"
 HRP="${HRP:-cosmos}"
 DERIVE_BY="${DERIVE_BY:-account}"
@@ -134,13 +136,13 @@ derive_accounts() {
 auth_token() {
   local i="$1" addr="${ADDR[$1]}" hex="${HEXKEY[$1]}"
   local challenge signed
-  challenge=$(curl_check -X POST "$COORD_SERVER/auth/challenge" \
+  challenge=$(curl_check -X POST "$COORD_API/auth/challenge" \
     -H 'Content-Type: application/json' \
     -d "{\"operator_address\":\"$addr\"}" | jq -r '.challenge')
   signed=$(printf \
     '{"operator_address":"%s","challenge":"%s","nonce":"","timestamp":"","pubkey_b64":"","signature":""}' \
     "$addr" "$challenge" | smoke-signer sign --privkey-hex "$hex")
-  curl_check -X POST "$COORD_SERVER/auth/verify" \
+  curl_check -X POST "$COORD_API/auth/verify" \
     -H 'Content-Type: application/json' -d "$signed" | jq -r '.token'
 }
 
@@ -172,7 +174,7 @@ seed_coordinators() {
   local admin_token i
   admin_token=$(token_for "$IDX_ADMIN")
   for i in "${COORDINATOR_INDICES[@]}"; do
-    curl_check -X POST "$COORD_SERVER/admin/coordinators" \
+    curl_check -X POST "$COORD_API/admin/coordinators" \
       -H "Authorization: Bearer $admin_token" \
       -H 'Content-Type: application/json' \
       -d "{\"address\":\"${ADDR[$i]}\"}" >/dev/null
@@ -224,7 +226,7 @@ propose_and_sign() {
   raise=$(printf '{"member_address":"%s","action_type":"%s","payload":%s,"nonce":"","timestamp":"","pubkey_b64":"","signature":""}' \
     "$lead_addr" "$action" "$payload")
   signed=$(printf '%s' "$raise" | smoke-signer sign --privkey-hex "$lead_hex")
-  resp=$(curl_check -X POST "$COORD_SERVER/launch/$launch_id/proposal" \
+  resp=$(curl_check -X POST "$COORD_API/launch/$launch_id/proposal" \
     -H "Authorization: Bearer $lead_token" -H 'Content-Type: application/json' -d "$signed")
   pid=$(echo "$resp" | jq -r '.id')
   pstatus=$(echo "$resp" | jq -r '.status')
@@ -237,7 +239,7 @@ propose_and_sign() {
     s_token=$(token_for "$s")
     s_tmpl=$(printf '{"member_address":"%s","decision":"SIGN","nonce":"","timestamp":"","pubkey_b64":"","signature":""}' "$s_addr")
     s_signed=$(printf '%s' "$s_tmpl" | smoke-signer sign --privkey-hex "$s_hex")
-    resp=$(curl_check -X POST "$COORD_SERVER/launch/$launch_id/proposal/$pid/sign" \
+    resp=$(curl_check -X POST "$COORD_API/launch/$launch_id/proposal/$pid/sign" \
       -H "Authorization: Bearer $s_token" -H 'Content-Type: application/json' -d "$s_signed")
     pstatus=$(echo "$resp" | jq -r '.status // "PENDING_SIGNATURES"')
   done
@@ -291,7 +293,7 @@ validator_join() {
   join=$(printf '{"operator_address":"%s","chain_id":"%s","gentx":%s,"peer_address":"%s","rpc_endpoint":"%s","memo":"","nonce":"","timestamp":"","pubkey_b64":"","signature":""}' \
     "$op" "$chain_id" "$gentx_json" "$peer" "http://val$i:26657")
   signed=$(printf '%s' "$join" | smoke-signer sign --privkey-hex "${HEXKEY[$i]}")
-  curl_check -X POST "$COORD_SERVER/launch/$launch_id/join" \
+  curl_check -X POST "$COORD_API/launch/$launch_id/join" \
     -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d "$signed" | jq -r '.id'
 }
 
@@ -309,7 +311,7 @@ assemble_final_genesis() {
   done
 
   mkdir -p "$chome/config/gentx"
-  curl_check "$COORD_SERVER/launch/$launch_id/gentxs" -H "Authorization: Bearer $lead_token" \
+  curl_check "$COORD_API/launch/$launch_id/gentxs" -H "Authorization: Bearer $lead_token" \
     | jq -c '.gentxs[]' | while IFS= read -r entry; do
     jr=$(echo "$entry" | jq -r '.join_request_id')
     echo "$entry" | jq -c '.gentx' >"$chome/config/gentx/gentx-$jr.json"
@@ -342,7 +344,7 @@ assemble_final_genesis_gentool() {
   lead_token=$(token_for "$lead")
 
   # approved gentxs from coordd — the same source of truth the collect-gentxs path uses.
-  curl_check "$COORD_SERVER/launch/$launch_id/gentxs" -H "Authorization: Bearer $lead_token" \
+  curl_check "$COORD_API/launch/$launch_id/gentxs" -H "Authorization: Bearer $lead_token" \
     | jq -c '.gentxs[]' | while IFS= read -r entry; do
     jr=$(echo "$entry" | jq -r '.join_request_id')
     echo "$entry" | jq -c '.gentx' >"$gentx_dir/gentx-$jr.json"
@@ -414,10 +416,12 @@ build_launch() {
   local cosign="${S[cosign]:-}"
   log "launch: $name ($chain_id) → $target"
 
-  # committee + allowlist JSON from indices
+  # committee + allowlist JSON from indices. Moniker is the DEMO ACCOUNT index ("acct<i>", matching
+  # the docs/demo.md account table) — deliberately not "member<i>", which reads like a committee
+  # position and misleads (the lead is Members[0], regardless of which account index it is).
   local members_json="[]" allow_json="[]" m a total_n
   for m in ${S[committee]}; do
-    members_json=$(echo "$members_json" | jq --arg a "${ADDR[$m]}" --arg mon "member$m" '. + [{address:$a,moniker:$mon}]')
+    members_json=$(echo "$members_json" | jq --arg a "${ADDR[$m]}" --arg mon "acct$m" '. + [{address:$a,moniker:$mon}]')
   done
   # Add the demo admin (idx0) as an allowlisted VIEWER of every launch it doesn't already govern, so
   # the front-door account sees the whole fixture. Allowlist membership grants visibility + join, not
@@ -447,7 +451,7 @@ build_launch() {
               gentx_deadline:"2099-01-01T00:00:00Z", genesis_time:"2099-01-01T00:00:00Z",
               min_validator_count:$minv},
       committee:{members:$members, threshold_m:$m, total_n:$n, lead_address:$lead}}')
-  id=$(curl_check -X POST "$COORD_SERVER/launch" -H "Authorization: Bearer $creator_token" \
+  id=$(curl_check -X POST "$COORD_API/launch" -H "Authorization: Bearer $creator_token" \
     -H 'Content-Type: application/json' -d "$body" | jq -r '.id')
   log "  created $id (DRAFT)"
   [ "$target" = "DRAFT" ] && {
@@ -463,14 +467,14 @@ build_launch() {
   local ghash gfile
   ghash=$(init_launch_genesis "$chain_id" "$denom")
   gfile="$(coord_home "$chain_id")/config/genesis.json"
-  curl_check -X POST "$COORD_SERVER/launch/$id/genesis?type=initial" \
+  curl_check -X POST "$COORD_API/launch/$id/genesis?type=initial" \
     -H "Authorization: Bearer $lead_token" -H 'Content-Type: application/octet-stream' \
     --data-binary @"$gfile" >/dev/null
   propose_and_sign "$id" "PUBLISH_CHAIN_RECORD" "{\"initial_genesis_sha256\":\"$ghash\"}" "$lead" $cosign >/dev/null
   log "  PUBLISHED"
 
   if [ "$target" = "CANCELED" ]; then
-    curl_check -X POST "$COORD_SERVER/launch/$id/cancel" -H "Authorization: Bearer $lead_token" >/dev/null
+    curl_check -X POST "$COORD_API/launch/$id/cancel" -H "Authorization: Bearer $lead_token" >/dev/null
     log "  CANCELED"
     echo "$id"
     return 0
@@ -481,7 +485,7 @@ build_launch() {
   }
 
   # open window
-  curl_check -X POST "$COORD_SERVER/launch/$id/open-window" -H "Authorization: Bearer $lead_token" >/dev/null
+  curl_check -X POST "$COORD_API/launch/$id/open-window" -H "Authorization: Bearer $lead_token" >/dev/null
   log "  WINDOW_OPEN"
 
   # validators join
@@ -528,7 +532,7 @@ build_launch() {
   else
     fhash=$(assemble_final_genesis "$id" "$chain_id" "$denom" "$lead" "${S[approve]}")
   fi
-  curl_check -X POST "$COORD_SERVER/launch/$id/genesis?type=final" \
+  curl_check -X POST "$COORD_API/launch/$id/genesis?type=final" \
     -H "Authorization: Bearer $lead_token" -H 'Content-Type: application/octet-stream' \
     --data-binary @"$(coord_home "$chain_id")/config/genesis.json" >/dev/null
   propose_and_sign "$id" "PUBLISH_GENESIS" "{\"genesis_hash\":\"$fhash\"}" "$lead" $cosign >/dev/null
@@ -543,11 +547,11 @@ demo_negative_checks() {
   # idx 2 (committee delegate) is NOT on the coordinator allowlist → cannot create under restricted
   # policy. coordd checks the allowlist before decoding the body, so an empty body still 403s.
   expect_status 403 "idx2 (delegate) cannot create a launch" \
-    -X POST "$COORD_SERVER/launch" -H "Authorization: Bearer $(token_for 2)" \
+    -X POST "$COORD_API/launch" -H "Authorization: Bearer $(token_for 2)" \
     -H 'Content-Type: application/json' -d '{}'
   # idx 15 (unauthorized) is a member of nothing → a private launch is 404 even when authenticated.
   expect_status 404 "idx15 cannot see a private launch" \
-    "$COORD_SERVER/launch/$a_launch" -H "Authorization: Bearer $(auth_token 15)"
+    "$COORD_API/launch/$a_launch" -H "Authorization: Bearer $(auth_token 15)"
 }
 
 # seed_launches: build the ~10-launch matrix on the ladder — one launch per reachable state plus

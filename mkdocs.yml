@@ -56,6 +56,7 @@ nav:
   - Architecture:
       - Overview: architecture/overview.md
       - Launch flow: architecture/launch-flow.md
+  - Demo: demo.md
   - Decisions:
       - Index: decisions/index.md
       - ADR template: decisions/adr-template.md
@@ -85,5 +86,6 @@ nav:
       - "0024 · HRP-independent account identity": decisions/0024-hrp-independent-account-identity.md
       - "0025 · Cancellation is stage-dependent (hybrid)": decisions/0025-cancel-governance-hybrid.md
       - "0026 · Coordinator vs committee member": decisions/0026-coordinator-vs-committee-member.md
+      - "0027 · API namespaced under /api/v1": decisions/0027-api-v1-namespace.md
   - Reference:
       - "Bridge contract (coordd ↔ rehearsal)": reference/bridge-contract.md

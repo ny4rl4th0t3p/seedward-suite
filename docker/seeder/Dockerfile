@@ -5,11 +5,11 @@
 # gentool (custom genesis assembly), and seed.sh. Built locally by `make dev-seed`; not published.
 
 # --- Build the Go tools from pinned releases (portable: fetched from the module proxy, no sibling
-#     checkout). CHAINCOORD_REF must carry smoke-signer's --privkey-hex (chaincoord >= v1.0.0-rc5);
+#     checkout). CHAINCOORD_REF must carry smoke-signer's --privkey-hex (chaincoord >= v1.0.0);
 #     point it at a branch/commit to build against unreleased changes.
 FROM golang:1.25-alpine AS gobuild
 RUN apk add --no-cache git
-ARG CHAINCOORD_REF=v1.0.0-rc5
+ARG CHAINCOORD_REF=v1.0.0
 ARG GENTOOL_VERSION=v1.0.0
 RUN go install "github.com/ny4rl4th0t3p/seedward-chaincoord/cmd/smoke-signer@${CHAINCOORD_REF}"
 RUN go install "github.com/ny4rl4th0t3p/seedward-gentool/cmd/gentool@${GENTOOL_VERSION}"

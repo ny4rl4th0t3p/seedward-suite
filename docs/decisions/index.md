@@ -41,6 +41,7 @@ the `nav` in `mkdocs.yml`.
 | [0024](0024-hrp-independent-account-identity.md)       | The hot identity is the HRP-independent account                                       | 2026-07-08 | accepted |
 | [0025](0025-cancel-governance-hybrid.md)               | Cancellation is stage-dependent (hybrid governance)                                   | 2026-07-16 | accepted |
 | [0026](0026-coordinator-vs-committee-member.md)        | "Coordinator" (creator) vs "committee member" (in-launch seat)                        | 2026-07-16 | accepted |
+| [0027](0027-api-v1-namespace.md)                       | coordd's REST surface is namespaced under `/api/v1`                                   | 2026-07-21 | accepted |
 
 ## Backlog (candidate ADRs)
 

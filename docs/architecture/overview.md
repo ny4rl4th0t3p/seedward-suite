@@ -33,14 +33,14 @@ flowchart LR
 Maturity is the durable signal (tags move); the same table with published tags lives on the
 [home page](../index.md#component-status).
 
-| Repo                        | Role                                         | Status                         | Must run?                                                                   |
-|-----------------------------|----------------------------------------------|--------------------------------|-----------------------------------------------------------------------------|
-| **seedward-chaincoord**     | the coordination server (`coordd`)           | Release candidate — v1 imminent | **Yes** — the only mandatory process                                        |
-| **seedward-chaincoord-web** | Next.js UI; calls coordd's HTTP API          | 🚧 Heavy development — PoC, not for production | Optional (browser UI)                                                       |
-| **seedward-rehearsal**      | `rehearsald` daemon + `rehearse` CLI         | 🚧 Heavy development — expect breaking changes | Optional bolt-on (auto pre-flight rehearsal)                                |
-| **seedward-libs**           | shared Go lib (canonicaljson, gentxvalidate) | Stable                         | No — **compiled into** coordd/rehearsal/cli                                 |
-| **seedward-gentool**        | genesis engine + build CLI                   | Pre-1.0 — API still settling   | No — **embedded** by rehearsal; a build/dev tool                            |
-| **seedward-cli**            | unified `seedward` CLI                       | Not shipping for v1 — stubs    | No — **post-v1, not shipping for v1** (coordd/rehearsal commands are stubs) |
+| Repo                        | Role                                         | Status                          | Must run?                                                                   |
+|-----------------------------|----------------------------------------------|---------------------------------|-----------------------------------------------------------------------------|
+| **seedward-chaincoord**     | the coordination server (`coordd`)           | Stable — v1.0.0                 | **Yes** — the only mandatory process                                        |
+| **seedward-chaincoord-web** | Next.js UI; calls coordd's HTTP API          | Beta (v0.3.x)                   | Optional (browser UI)                                                       |
+| **seedward-rehearsal**      | `rehearsald` daemon + `rehearse` CLI         | Pre-release (v0.3.x)            | Optional bolt-on (auto pre-flight rehearsal)                                |
+| **seedward-libs**           | shared Go lib (canonicaljson, gentxvalidate) | Stable (v1.x)                   | No — **compiled into** coordd/rehearsal/cli                                 |
+| **seedward-gentool**        | genesis engine + build CLI                   | Stable (v1.x)                   | No — **embedded** by rehearsal; a build/dev tool                            |
+| **seedward-cli**            | unified `seedward` CLI                       | Experimental                    | No — **post-v1, not shipping for v1** (coordd/rehearsal commands are stubs) |
 
 ## Runtime vs build-time
 
@@ -74,7 +74,7 @@ Two credential planes stay separate:
   (ADR-036, [ADR-0011](../decisions/0011-adr036-challenge-response-auth.md)). No server-held keys.
 - **Ops plane** — the coordd↔rehearsal bridge uses a **deploy-time ops credential**
   ([ADR-0007](../decisions/0007-bridge-fact-based-trust-boundary.md)), network-isolated behind the
-  `/bridge/*` prefix — never a user wallet.
+  `/api/v1/bridge/*` prefix — never a user wallet.
 
 ## The coordd ↔ rehearsal bridge
 

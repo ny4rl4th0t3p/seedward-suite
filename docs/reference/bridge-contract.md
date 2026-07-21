@@ -1,8 +1,9 @@
 # Bridge contract — coordd ↔ rehearsal (v1)
 
 _The normative v1 wire contract between coordd and the rehearsal service. Field-level JSON is normative;
-transport detail is illustrative — EXCEPT the `/bridge/*` prefix, which is load-bearing for network
-isolation (D6). The architectural decisions behind it are recorded as ADRs — the fact-based trust
+transport detail is illustrative — EXCEPT the `/api/v1/bridge/*` prefix (the bridge under coordd's
+versioned API mount, [ADR-0027](../decisions/0027-api-v1-namespace.md)), which is
+load-bearing for network isolation (D6). The architectural decisions behind it are recorded as ADRs — the fact-based trust
 boundary ([ADR-0007](../decisions/0007-bridge-fact-based-trust-boundary.md)) and result write-back /
 claim-lease ([ADR-0008](../decisions/0008-rehearsal-write-back-and-lease.md)); the decision log D1–D10 is
 in §6._
@@ -29,7 +30,7 @@ sequenceDiagram
     autonumber
     participant R as rehearsal service
     participant C as coordd
-    Note over R,C: every call is rehearsal-initiated, under /bridge/*, ops-credential auth (D4, D6)
+    Note over R,C: every call is rehearsal-initiated, under /api/v1/bridge/*, ops-credential auth (D4, D6)
     opt preview (read-only, no lease)
         R->>C: GET rehearsal-input
         C-->>R: approved input set, empty attempt_id (D10)
@@ -50,17 +51,17 @@ sequenceDiagram
     Note over R,C: v1.1 auto-trigger swaps the manual claim for POST rehearsal-attempts (§5.1)
 ```
 
-- **Read (preview)** — `GET /bridge/launches/{id}/rehearsal-input` → the approved build input (metadata +
+- **Read (preview)** — `GET /api/v1/bridge/launches/{id}/rehearsal-input` → the approved build input (metadata +
   per-file URLs), read-only, no lease, empty `attempt_id` (D10).
-- **Claim (run entry)** — `POST /bridge/launches/{id}/rehearsal-claim {runner_id}` → acquires the single-writer
+- **Claim (run entry)** — `POST /api/v1/bridge/launches/{id}/rehearsal-claim {runner_id}` → acquires the single-writer
   run lease and returns the build input with a minted `attempt_id`; 409 if another runner holds the lease (D10).
-- **Fetch allocation** — `GET /bridge/launches/{id}/allocations/{type}` → streams one approved allocation
+- **Fetch allocation** — `GET /api/v1/bridge/launches/{id}/allocations/{type}` → streams one approved allocation
   file (host bytes) or 302-redirects to its attestor URL (D8).
-- **Write-back** — `POST /bridge/launches/{id}/rehearsal-results` → the signed result fact.
-- **Claim** — `POST /bridge/launches/{id}/rehearsal-attempts` → exists only for v1.1
+- **Write-back** — `POST /api/v1/bridge/launches/{id}/rehearsal-results` → the signed result fact.
+- **Claim** — `POST /api/v1/bridge/launches/{id}/rehearsal-attempts` → exists only for v1.1
   auto-triggers (§5.1). Not used by the v1 manual flow.
 
-All bridge endpoints sit under the `/bridge/*` prefix so they can be network-restricted to an
+All bridge endpoints sit under the `/api/v1/bridge/*` prefix so they can be network-restricted to an
 internal VNet with one rule (D6). Auth: all require an ops credential (D4). The write-back
 additionally requires a valid service signature from a pubkey coordd trusts for this launch (§4.1, D2).
 
@@ -161,7 +162,7 @@ empty and rehearsal runs on gentxs alone; the contract does not change when file
 
 **Allocation content is streamed by reference, not inlined (D8, 2026-07-04).** Each allocation
 entry carries a **`url`**, not the bytes. The daemon streams each file from that URL — coordd's
-ops-gated per-file endpoint `GET /bridge/launches/{id}/allocations/{type}`, which **streams host
+ops-gated per-file endpoint `GET /api/v1/bridge/launches/{id}/allocations/{type}`, which **streams host
 bytes (`io.Copy`, constant memory)** or **302-redirects to the external URL for attestor-mode
 files**. This replaced an earlier inline-`content_b64` design (D7), which buffered every file into
 one JSON on coordd (raw + 33% base64 + marshal buffer, all resident) — a ~250 MB–1 GB memory spike
@@ -221,7 +222,7 @@ every transition.
 
 ## 4. Write-back payload — the result fact
 
-`POST /bridge/launches/{id}/rehearsal-results`, body:
+`POST /api/v1/bridge/launches/{id}/rehearsal-results`, body:
 
 ```jsonc
 {
@@ -337,7 +338,7 @@ the gatekeeper of *permission to run* (authorizing ≠ initiating, so the "coord
 principle in §0 holds):
 
 1. Before booting, the rehearsal service **claims an attempt**:
-   `POST /bridge/launches/{id}/rehearsal-attempts { "input_set_hash": "…" }`.
+   `POST /api/v1/bridge/launches/{id}/rehearsal-attempts { "input_set_hash": "…" }`.
    - coordd returns `{ "attempt_id": "<uuid>" }`, **or** `409` if an attempt for that
      hash is already in-flight (single-flight), **or** `429` if the attempt count for
      that hash has hit the cap.
@@ -378,16 +379,17 @@ caps claims per hash. Attempts are facts; the cap is a rule over them.
   — added later if bridged claims/grants or exact param assertions are needed.
 
 - **D6 — bridge endpoints under a dedicated `/bridge/*` prefix; ops auth = one shared file-based
-  bearer token (decided 2026-07-03).** All daemon-facing bridge endpoints live under `/bridge/…`
-  (`GET /bridge/launches/{id}/rehearsal-input`, `POST /bridge/launches/{id}/rehearsal-results`, and the
-  v1.1 `POST /bridge/launches/{id}/rehearsal-attempts`), grouped so a devop restricts `/bridge/*` to an
+  bearer token (decided 2026-07-03; since ADR-0027 the prefix sits under the versioned API mount,
+  so the public prefix is `/api/v1/bridge/*`).** All daemon-facing bridge endpoints live under it
+  (`GET /api/v1/bridge/launches/{id}/rehearsal-input`, `POST /api/v1/bridge/launches/{id}/rehearsal-results`, and the
+  v1.1 `POST /api/v1/bridge/launches/{id}/rehearsal-attempts`), grouped so a devop restricts `/api/v1/bridge/*` to an
   internal network with a single L7 rule (internet-cut) — this *is* how it should be deployed. coordd
   authenticates the ops plane with **one deployment-wide bearer token**, read from a file
   (`rehearsal_ops_token`, mirroring the audit/jwt key files), constant-time compared. This is **not** a
   token-management system: rotation is "swap the secret + reload," owned by the deployment's secret
   store; per-launch/per-service tokens or mTLS are v1.x. The coarse shared token is acceptable because
   the trust-critical *write* is gated per-launch by the D2 service pubkey, not the token. The
-  committee-facing result read-back stays on the governance plane (`GET /launch/{id}/rehearsal`), **not**
+  committee-facing result read-back stays on the governance plane (`GET /api/v1/launch/{id}/rehearsal`), **not**
   under `/bridge`.
 - **D7 — coordd serves rehearsal-input as-is; status-filtering is the rehearsal service's config; new
   `SKIPPED` outcome (decided 2026-07-03).** coordd applies **no** runnability / min-gentx / status gate
@@ -403,7 +405,7 @@ caps claims per hash. Attempts are facts; the cap is a rule over them.
 - **D8 — allocation content is streamed by reference, superseding inline `content_b64` (decided
   2026-07-04).** The rehearsal-input `allocations[type]` carries `{sha256, approved_by_proposal, url}` —
   **no bytes**. The daemon streams each file from `url` = coordd's ops-gated `GET
-  /bridge/launches/{id}/allocations/{type}`, which `io.Copy`s host bytes (constant memory) or 302s to the
+  /api/v1/bridge/launches/{id}/allocations/{type}`, which `io.Copy`s host bytes (constant memory) or 302s to the
   attestor URL. Rationale: the earlier inline design (D7) buffered every allocation into one JSON on coordd
   (raw + 33% base64 + marshal buffer) → ~250 MB–1 GB spikes for airdrop-scale files (100k–1M+ accounts),
   making it unusable on a real (airdrop) launch. By-reference keeps coordd memory **constant**, drops base64
@@ -415,7 +417,7 @@ caps claims per hash. Attempts are facts; the cap is a rule over them.
 - **D9 — result write-back is anchored to a coordd-minted attempt; stale results are stored, not
   fabricated (decided 2026-07-04, B3).** `GET rehearsal-input` get-or-creates an **attempt**
   `{id, launch, input_set_hash, issued_at}` keyed by `(launch, input_set_hash)` and returns `attempt_id`.
-  The result fact echoes it. `POST /bridge/launches/{id}/rehearsal-results` accepts a fact only if: (1)
+  The result fact echoes it. `POST /api/v1/bridge/launches/{id}/rehearsal-results` accepts a fact only if: (1)
   its Ed25519 signature verifies against the launch's **trusted** `rehearsal_service_pubkey` (D2, not the
   self-declared `service_pubkey`); (2) it references an attempt coordd minted for **this** launch whose
   `input_set_hash` matches — else **rejected (400) as fabricated**, so coordd never stores a hash it did
@@ -427,7 +429,7 @@ caps claims per hash. Attempts are facts; the cap is a rule over them.
   (`status/claimed_at/lease_expires_at/runner_id`) reserved for the **B3.5** claim-before-run lease (§5.1),
   which the manual v1 flow does not yet enforce. The fact wire shape is pinned by a result-fact drift
   golden on both sides (mirror of §2's). Committee members read stored results back on the **governance**
-  plane (not `/bridge`): `GET /launch/{id}/rehearsal` returns each result's outcome, failed step,
+  plane (not `/bridge`): `GET /api/v1/launch/{id}/rehearsal` returns each result's outcome, failed step,
   input-set hash, and `stale` flag, newest first (B4).
 
 - **D10 — claim-before-run lease enforced in v1 (decided 2026-07-04, B3.5), reversing the earlier
@@ -438,7 +440,7 @@ caps claims per hash. Attempts are facts; the cap is a rule over them.
   **does not extend** the lease deadline — so a chatty or crash-looping runner cannot hold the lease past its
   original window and starve others. The lease **auto-expires** after a TTL (default 45 min — longer than a
   bounded rehearsal, so a crashed runner self-heals), evaluated lazily on the next claim (no sweeper). A committee member can force-release a
-  stuck lease immediately via `POST /launch/{id}/rehearsal/{attempt_id}/reset` (governance plane, not
+  stuck lease immediately via `POST /api/v1/launch/{id}/rehearsal/{attempt_id}/reset` (governance plane, not
   `/bridge`). **Reset authz:** any single member of the launch **committee** (`l.Committee.HasMember`),
   immediate — no M-of-N proposal (low-stakes operational recovery; worst case is a redundant read-only
   rehearsal, so it uses the same single-member gate as member management, not the heavy proposal path).

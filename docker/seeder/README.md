@@ -30,7 +30,7 @@ address index instead) if you prefer.
 
 | idx  | role                | can create launches? | notes                                                                                    |
 |------|---------------------|----------------------|------------------------------------------------------------------------------------------|
-| 0    | admin + coordinator | yes                  | also the `/admin` address (`COORD_ADMIN_ADDRESSES`)                                      |
+| 0    | admin + coordinator | yes                  | also the `/api/v1/admin` address (`COORD_ADMIN_ADDRESSES`)                               |
 | 1    | coordinator         | yes                  | on the coordinator allowlist                                                             |
 | 2    | committee delegate  | **no**               | governs (signs proposals, can be committee lead) but is not on the coordinator allowlist |
 | 3–14 | validators          | —                    | join / get approved across launches                                                      |
@@ -56,7 +56,7 @@ seeder never re-implements crypto.
 
 The image (`Dockerfile`) `go install`s `smoke-signer` + `gentool` from pinned refs and fetches
 `gaiad` — portable, no sibling checkout. `CHAINCOORD_REF` must carry smoke-signer's `--privkey-hex`
-(chaincoord ≥ `v1.0.0-rc5`); override it to build against an unreleased branch/commit.
+(chaincoord ≥ `v1.0.0`); override it to build against an unreleased branch/commit.
 
 ## The launch ladder
 
@@ -67,7 +67,7 @@ The image (`Dockerfile`) `go install`s `smoke-signer` + `gentool` from pinned re
 |----------------------------------|-----------------------------------------------------------------------------------------|
 | `name` `chain_id` `denom` `type` | chain-record basics (`type` = TESTNET / INCENTIVIZED_TESTNET / MAINNET / PERMISSIONED)  |
 | `target`                         | state to stop at: DRAFT, PUBLISHED, WINDOW_OPEN, WINDOW_CLOSED, GENESIS_READY, CANCELED |
-| `creator`                        | coordinator idx that POSTs `/launch` (default: `lead`)                                  |
+| `creator`                        | coordinator idx that POSTs `/api/v1/launch` (default: `lead`)                           |
 | `lead`                           | committee `members[0]` (does all committee actions)                                     |
 | `committee`                      | space-list of member idxs (first must equal `lead`)                                     |
 | `threshold`                      | M (of N = committee size)                                                               |
