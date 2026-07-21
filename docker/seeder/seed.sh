@@ -17,13 +17,18 @@
 #                   account index; to be account i in a wallet, set the derivation path's account
 #                   field to i. "index" → m/44'/118'/0'/0/i varies the address index instead)
 #   SEED_MODE       "full" | "accounts"          (default full; "accounts" prints the table and exits)
+#   FIXTURES_DIR    fixture templates dir        (default /seed/fixtures — baked into the image)
 set -euo pipefail
+# Without inherit_errexit, $(...) subshells drop set -e — a failing rung inside fhash=$(assemble...)
+# would keep running past the failure and hand the caller a bad artifact instead of aborting.
+shopt -s inherit_errexit
 
 COORD_SERVER="${COORD_SERVER:-http://coordd:8080}"
 DEMO_MNEMONIC="${DEMO_MNEMONIC:?DEMO_MNEMONIC is required}"
 HRP="${HRP:-cosmos}"
 DERIVE_BY="${DERIVE_BY:-account}"
 SEED_MODE="${SEED_MODE:-full}"
+FIXTURES_DIR="${FIXTURES_DIR:-/seed/fixtures}"
 
 KEYRING="test"
 GAIA_HOME="/tmp/seed-gaia"
@@ -319,12 +324,87 @@ assemble_final_genesis() {
   sha256sum "$g" | awk '{print $1}'
 }
 
+# assemble_final_genesis_gentool <launch_id> <chain_id> <denom> <lead_idx> "<approved_idxs>":
+# gentool-based final assembly (the Echo showcase — custom accounts, vesting claims/grants, authz +
+# feegrant, community pool). Renders the fixture templates under $FIXTURES_DIR/echo/ ({{ADDRi}} →
+# derived addresses, times relative to now, total_supply computed from the rendered inputs), fetches
+# the approved gentxs from coordd, runs `gentool create` against the launch's baseline genesis,
+# validates with gaiad, and echoes the final-genesis sha256.
+assemble_final_genesis_gentool() {
+  local launch_id="$1" chain_id="$2" denom="$3" lead="$4" approved="$5"
+  local chome fixdir gentx_dir out lead_token
+  chome=$(coord_home "$chain_id")
+  fixdir="$chome/gentool"
+  gentx_dir="$fixdir/gentx"
+  out="$fixdir/genesis.json"
+  rm -rf "$fixdir"
+  mkdir -p "$gentx_dir"
+  lead_token=$(token_for "$lead")
+
+  # approved gentxs from coordd — the same source of truth the collect-gentxs path uses.
+  curl_check "$COORD_SERVER/launch/$launch_id/gentxs" -H "Authorization: Bearer $lead_token" \
+    | jq -c '.gentxs[]' | while IFS= read -r entry; do
+    jr=$(echo "$entry" | jq -r '.join_request_id')
+    echo "$entry" | jq -c '.gentx' >"$gentx_dir/gentx-$jr.json"
+  done
+
+  # Seed-relative times keep the fixture always-runnable (nothing hardcoded that can go stale).
+  local now gt_unix claims_end grants_start grants_end far_future
+  now=$(date +%s)
+  gt_unix=$((now + 120))          # genesis_time — coordd requires it to be future at upload
+  claims_end=$((now + 31536000))  # +1y: the delayed-vesting cliff
+  grants_start=$now               # continuous vesting is already unlocking at genesis
+  grants_end=$((now + 63072000))  # +2y
+  far_future=$((now + 63072000))  # authz / feegrant expiries
+
+  # Render the templates. {{TOTAL_SUPPLY}} stays unresolved in gentool.yaml until the CSVs exist —
+  # it is computed FROM them below, so editing fixture amounts keeps the supply check green.
+  local f content i
+  for f in accounts.csv claims.csv grants.csv authz.csv feegrant.csv gentool.yaml; do
+    content=$(cat "$FIXTURES_DIR/echo/$f")
+    for ((i = 0; i < N_ACCOUNTS; i++)); do
+      content=${content//"{{ADDR$i}}"/"${ADDR[$i]}"}
+    done
+    content=${content//"{{CHAIN_ID}}"/"$chain_id"}
+    content=${content//"{{DENOM}}"/"$denom"}
+    content=${content//"{{GENESIS_TIME}}"/"$gt_unix"}
+    content=${content//"{{CLAIMS_END}}"/"$claims_end"}
+    content=${content//"{{GRANTS_START}}"/"$grants_start"}
+    content=${content//"{{GRANTS_END}}"/"$grants_end"}
+    content=${content//"{{FAR_FUTURE}}"/"$far_future"}
+    content=${content//"{{FIXDIR}}"/"$fixdir"}
+    content=${content//"{{GENTX_DIR}}"/"$gentx_dir"}
+    content=${content//"{{OUTPUT}}"/"$out"}
+    printf '%s\n' "$content" >"$fixdir/$f"
+  done
+
+  # gentool validates accounts.total_supply == everything that exists at genesis:
+  # accounts + claims + grants + the gentx self-delegations (bonded pool) + the community pool.
+  local acc_sum claims_sum grants_sum pool n_vals total
+  acc_sum=$(awk -F, '{s += $2} END {printf "%.0f", s}' "$fixdir/accounts.csv")
+  claims_sum=$(awk -F, '{s += $2} END {printf "%.0f", s}' "$fixdir/claims.csv")
+  grants_sum=$(awk -F, '{s += $2} END {printf "%.0f", s}' "$fixdir/grants.csv")
+  pool=$(awk '/community_pool_amount:/ {print $2 + 0}' "$fixdir/gentool.yaml")
+  n_vals=$(echo "$approved" | wc -w)
+  total=$((acc_sum + claims_sum + grants_sum + n_vals * DELEGATION + pool))
+  content=$(cat "$fixdir/gentool.yaml")
+  content=${content//"{{TOTAL_SUPPLY}}"/"$total"}
+  printf '%s\n' "$content" >"$fixdir/gentool.yaml"
+
+  log "    gentool: assembling $chain_id (total supply $total$denom)"
+  gentool create --input-genesis "$chome/config/genesis.json" --config "$fixdir/gentool.yaml" >&2
+  cp "$out" "$chome/config/genesis.json"
+  gaiad genesis validate --home "$chome" >/dev/null
+  sha256sum "$chome/config/genesis.json" | awk '{print $1}'
+}
+
 # build_launch <spec_assoc_array_name>: create a launch and walk it to spec[target]. Spec keys:
 #   name chain_id denom type target(DRAFT|PUBLISHED|WINDOW_OPEN|WINDOW_CLOSED|GENESIS_READY|CANCELED)
 #   creator(coordinator idx that POSTs /launch; default lead) lead(committee members[0])
 #   committee(space-list of member idxs; first must be lead) threshold(M) cosign(extra signer idxs
 #   for M-of-N proposals) min_validators allow(validator idxs) join(subset) approve(subset)
 #   pending_last_approve(1 → leave the final APPROVE_VALIDATOR PENDING, for the centerpiece)
+#   genesis(collect|gentool → final-genesis assembler; default collect-gentxs)
 # Echoes the launch id.
 build_launch() {
   local -n S="$1"
@@ -441,9 +521,13 @@ build_launch() {
     return 0
   }
 
-  # assemble + publish final genesis
+  # assemble + publish final genesis (spec key genesis=gentool swaps the assembler)
   local fhash
-  fhash=$(assemble_final_genesis "$id" "$chain_id" "$denom" "$lead" "${S[approve]}")
+  if [ "${S[genesis]:-collect}" = "gentool" ]; then
+    fhash=$(assemble_final_genesis_gentool "$id" "$chain_id" "$denom" "$lead" "${S[approve]}")
+  else
+    fhash=$(assemble_final_genesis "$id" "$chain_id" "$denom" "$lead" "${S[approve]}")
+  fi
   curl_check -X POST "$COORD_SERVER/launch/$id/genesis?type=final" \
     -H "Authorization: Bearer $lead_token" -H 'Content-Type: application/octet-stream' \
     --data-binary @"$(coord_home "$chain_id")/config/genesis.json" >/dev/null
@@ -504,12 +588,14 @@ seed_launches() {
   )
   build_launch L_DELTA >/dev/null
 
-  # 5. Echo — GENESIS_READY. Assembled with collect-gentxs for now; task 5 swaps it to the gentool
-  #    assembler with custom accounts/vesting inputs.
+  # 5. Echo — GENESIS_READY, final genesis assembled with GENTOOL from custom inputs
+  #    (fixtures/echo: treasury + ops accounts, delayed-vesting claims — one pre-delegated to val3 —
+  #    a continuous-vesting grant, authz + feegrant seeds, and a community pool).
   local -A L_ECHO=(
     [name]="Echo" [chain_id]="echo-1" [denom]="uecho" [type]="MAINNET"
     [target]="GENESIS_READY" [lead]=0 [committee]="0" [threshold]=1 [min_validators]=4
     [allow]="3 4 5 11 12" [join]="3 4 5 11 12" [approve]="3 4 5 11 12"
+    [genesis]="gentool"
   )
   build_launch L_ECHO >/dev/null
 

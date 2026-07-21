@@ -1,0 +1,2 @@
+{{ADDR0}},{{ADDR1}},/cosmos.bank.v1beta1.MsgSend
+{{ADDR0}},{{ADDR2}},/cosmos.gov.v1.MsgVote,{{FAR_FUTURE}}

@@ -1,0 +1,63 @@
+# gentool config for the Echo demo launch (template). seed.sh renders every {{...}} token at seed
+# time: addresses derive from DEMO_MNEMONIC via gaiad, times are relative to the seed run, and
+# total_supply is computed from the rendered CSVs + the gentx self-delegations + the community pool
+# (gentool validates it and fails fast on a mismatch).
+
+chain:
+  id: {{CHAIN_ID}}
+  address_prefix: cosmos
+  max_validators: 100
+  unbonding_time_seconds: 1814400
+  min_commission_rate: "0.01"
+
+default_bond_denom: {{DENOM}}
+
+app:
+  name: gaiad
+  version: v27.1.0
+  genesis_time: {{GENESIS_TIME}}
+
+gov:
+  min_deposit_amount: 10000000
+  voting_period: "600s"
+  # must be strictly less than voting_period (the SDK default 24h fails gaiad validate otherwise)
+  expedited_voting_period: "300s"
+
+denom:
+  base: {{DENOM}}
+  display: ECHO
+  symbol: ECHO
+  description: "Echo demo chain staking token"
+  exponent: 6
+
+accounts:
+  file_name: {{FIXDIR}}/accounts.csv
+  total_supply: {{TOTAL_SUPPLY}}
+
+# Delayed vesting: everything vests at once at end_date; the val3 row pre-delegates from genesis.
+claims:
+  file_name: {{FIXDIR}}/claims.csv
+  vesting:
+    end_date: {{CLAIMS_END}}
+
+# Continuous vesting: unlocks linearly between start_date and end_date.
+grants:
+  file_name: {{FIXDIR}}/grants.csv
+  vesting:
+    start_date: {{GRANTS_START}}
+    end_date: {{GRANTS_END}}
+
+distribution:
+  community_pool_amount: 250000000
+
+authz:
+  file_name: {{FIXDIR}}/authz.csv
+
+feegrant:
+  file_name: {{FIXDIR}}/feegrant.csv
+
+validators:
+  gentx_dir: {{GENTX_DIR}}
+
+genesis:
+  output: {{OUTPUT}}

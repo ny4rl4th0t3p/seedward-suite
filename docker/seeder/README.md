@@ -75,13 +75,30 @@ The image (`Dockerfile`) `go install`s `smoke-signer` + `gentool` from pinned re
 | `min_validators`                 | `record.min_validator_count`                                                            |
 | `allow` `join` `approve`         | validator idxs: allowlisted / that submit a join / that get approved                    |
 | `pending_last_approve`           | `1` → leave the final `APPROVE_VALIDATOR` PENDING (needs M > 1) — the centerpiece       |
+| `genesis`                        | final-genesis assembler: `collect` (default, `collect-gentxs`) or `gentool` (Echo)      |
 
 Rungs: create → upload initial genesis + `PUBLISH_CHAIN_RECORD` → `open-window` → per-validator
 `gaiad gentx` + `/join` → `APPROVE_VALIDATOR` → `CLOSE_APPLICATION_WINDOW` → assemble (fund +
-`collect-gentxs` + validate) → `PUBLISH_GENESIS`. `CANCELED` is a direct `/cancel` from DRAFT/PUBLISHED.
+`collect-gentxs` + validate — or gentool, below) → `PUBLISH_GENESIS`. `CANCELED` is a direct
+`/cancel` from DRAFT/PUBLISHED.
 
 **Genesis math:** equal self-delegation per validator keeps every operator below coordd's ⅓ BFT gate at window close, so
 closing launches need **≥ 4 approved validators** (4 → 25 % each).
+
+## The gentool launch (Echo)
+
+**Echo** (`echo-1`, GENESIS_READY) swaps `collect-gentxs` for **gentool** — the suite's genesis
+assembler — fed by the templates in [`fixtures/echo/`](fixtures/README.md): treasury + ops accounts
+(`accounts.csv`), delayed-vesting claims with one pre-delegated to `val3` (`claims.csv`), a
+continuous-vesting grant (`grants.csv`), `authz`/`feegrant` seeds, and a community pool
+(`gentool.yaml`).
+
+The templates carry `{{ADDR<i>}}` / `{{DENOM}}` / time tokens; `seed.sh` renders them at seed time
+(addresses come from the gaiad derivation — never hand-authored; vesting dates and `genesis_time`
+are relative to *now*, so the fixture never goes stale) and computes `accounts.total_supply` from
+the rendered inputs plus the gentx self-delegations and the community pool — gentool re-validates
+that sum and fails fast on a mismatch. The output genesis is validated with `gaiad genesis validate`
+before upload, exactly like the collect path.
 
 ## Demo-only coordd config
 
@@ -93,6 +110,7 @@ The compose stack sets these on coordd for the demo (never for production):
 
 ## Status / scope
 
-Phase 1: the ladder is proven with one launch (**Proof** → GENESIS_READY). Still to come — the full
-~10-launch matrix, the `gentool` custom-genesis launch, and the operator walkthrough (`docs/demo.md`). LAUNCHED is
-deferred (it needs a live chain — a future `make dev-seed-launched`).
+Built: the full 10-launch matrix (one per reachable lifecycle state + type/committee variety,
+negative role checks included) and the gentool custom-genesis launch (Echo). Still to come: the
+operator walkthrough (`docs/demo.md`). LAUNCHED is deferred (it needs a live chain — a future
+`make dev-seed-launched`).
