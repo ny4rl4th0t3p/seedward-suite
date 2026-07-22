@@ -27,7 +27,7 @@ Maturity per component — the durable signal (exact tags move each release; see
 | **seedward-chaincoord** (`coordd`)    | Stable — v1.0.0                                                                  |
 | **seedward-libs**                     | Stable (v1.x) — shared primitives (canonicaljson, gentxvalidate)                 |
 | **seedward-gentool**                  | Stable (v1.x) — genesis + rehearsal engine                                       |
-| **seedward-rehearsal** (`rehearsald`) | Pre-release (v0.3.x) — built; not yet shipped as a stable version                |
+| **seedward-rehearsal** (`rehearsald`) | Pre-release (v0.4.x) — built; not yet shipped as a stable version                |
 | **seedward-chaincoord-web**           | Beta (v0.3.x) — functional; drives the full lifecycle, minimal UI still evolving |
 | **seedward-cli**                      | Experimental — not shipping for v1; coordd/rehearsal commands are stubs          |
 
