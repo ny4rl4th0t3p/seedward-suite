@@ -22,15 +22,23 @@ bolt-ons; everything else is a library or a build-time tool.
 
 Maturity per component — the durable signal (exact tags move each release; see each repo's releases):
 
-| Component                             | Status                                                                           |
-|---------------------------------------|----------------------------------------------------------------------------------|
-| **seedward-chaincoord** (`coordd`)    | Stable — v1.0.0                                                                  |
-| **seedward-libs**                     | Stable (v1.x) — shared primitives (canonicaljson, gentxvalidate)                 |
-| **seedward-gentool**                  | Stable (v1.x) — genesis + rehearsal engine                                       |
-| **seedward-rehearsal** (`rehearsald`) | Pre-release (v0.4.x) — built; not yet shipped as a stable version                |
-| **seedward-chaincoord-web**           | Beta (v0.3.x) — functional; drives the full lifecycle, minimal UI still evolving |
-| **seedward-cli**                      | Experimental — not shipping for v1; coordd/rehearsal commands are stubs          |
+| Component                             | Status                                                                           | Links                                                                                                                      |
+|---------------------------------------|----------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| **seedward-chaincoord** (`coordd`)    | Stable — v1.0.0                                                                  | [GitHub](https://github.com/ny4rl4th0t3p/seedward-chaincoord) · [Docs](https://ny4rl4th0t3p.github.io/seedward-chaincoord) |
+| **seedward-libs**                     | Stable (v1.x) — shared primitives (canonicaljson, gentxvalidate)                 | [GitHub](https://github.com/ny4rl4th0t3p/seedward-libs)                                                                    |
+| **seedward-gentool**                  | Stable (v1.x) — genesis + rehearsal engine                                       | [GitHub](https://github.com/ny4rl4th0t3p/seedward-gentool)                                                                 |
+| **seedward-rehearsal** (`rehearsald`) | Pre-release (v0.4.x) — built; not yet shipped as a stable version                | [GitHub](https://github.com/ny4rl4th0t3p/seedward-rehearsal)                                                               |
+| **seedward-chaincoord-web**           | Beta (v0.3.x) — functional; drives the full lifecycle, minimal UI still evolving | [GitHub](https://github.com/ny4rl4th0t3p/seedward-chaincoord-web)                                                          |
+| **seedward-cli**                      | Experimental — not shipping for v1; coordd/rehearsal commands are stubs          | [GitHub](https://github.com/ny4rl4th0t3p/seedward-cli)                                                                     |
 
 !!! warning "Pre-1.0 components move fast"
 **seedward-rehearsal** (pre-release) and **seedward-chaincoord-web** (beta) may still take breaking changes before their
 v1. Pin exact tags and don't build on their current surface.
+
+## More operator tooling
+
+Seedward is part of a set of self-hostable tools for Cosmos SDK chain operations:
+[**pour**](https://github.com/ny4rl4th0t3p/pour) — a pure-Go multi-chain faucet ·
+[**chain-registry-sentinel**](https://github.com/ny4rl4th0t3p/chain-registry-sentinel) — automated endpoint verification
+for `cosmos/chain-registry` ·
+[**all projects**](https://ny4rl4th0t3p.github.io).
